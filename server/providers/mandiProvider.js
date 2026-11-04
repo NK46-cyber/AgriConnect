@@ -66,6 +66,18 @@ export class RealMandiPriceProvider extends MandiPriceProvider {
     this.db = db;
     this.apiUrl =
       "https://mandi-api.onrender.com/v1/prices/history";
+    this.commodityMap = {
+  "onion": "Onion",
+  "tomato": "Tomato",
+  "potato": "Potato",
+  "grapes": "Grapes",
+  "green grapes": "Grapes",
+  "wheat": "Wheat",
+  "soybean": "Soybean",
+  "maize": "Maize",
+  "pomegranate": "Pomegranate",
+  "garlic": "Garlic"
+};
   }
 
   async fetchHistory(commodity, market = "APMC Nasik ") {
@@ -108,24 +120,47 @@ export class RealMandiPriceProvider extends MandiPriceProvider {
 
     if (!crop) return null;
 
-    const records = await this.fetchHistory(crop.name_en);
+    const commodity =
+  this.commodityMap[crop.name_en.trim().toLowerCase()];
 
+if (!commodity) {
+  return null;
+}
+
+const records = await this.fetchHistory(commodity);
     if (!records.length) return null;
 
     const latest = records[0];
 
-    return {
-      crop_id: cropId,
-      commodity: latest.commodity,
-      min_price: latest.min_price,
-      modal_price: latest.modal_price,
-      max_price: latest.max_price,
-      unit: "INR/quintal",
-      price_date: latest.arrival_date,
-      market_name: latest.market,
-      variety: latest.variety,
-      source: "Nashik Mandi API"
-    };
+    
+
+const divisor = crop.unit_default === "kg" ? 100 : 1;
+
+return {
+  crop_id: cropId,
+  commodity: latest.commodity,
+
+  // Prices in the crop's default unit
+  min_price: latest.min_price / divisor,
+  modal_price: latest.modal_price / divisor,
+  max_price: latest.max_price / divisor,
+
+  unit: crop.unit_default,
+
+  // Original API prices in quintals
+  min_price_per_quintal: latest.min_price,
+  modal_price_per_quintal: latest.modal_price,
+  max_price_per_quintal: latest.max_price,
+
+  price_per_kg: latest.modal_price / 100,
+
+  price_date: latest.arrival_date,
+  market_name: latest.market,
+  variety: latest.variety,
+  source: "Nashik Mandi API"
+};
+
+
   }
 
   async getAllPrices(district = "Nashik") {
