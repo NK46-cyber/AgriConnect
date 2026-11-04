@@ -57,6 +57,111 @@ export class MockMandiPriceProvider extends MandiPriceProvider {
 }
 
 /**
+ * RealMandiPriceProvider
+ * Fetches actual reported prices from Nashik Mandi API.
+ */
+export class RealMandiPriceProvider extends MandiPriceProvider {
+  constructor(db) {
+    super();
+    this.db = db;
+    this.apiUrl =
+      "https://mandi-api.onrender.com/v1/prices/history";
+  }
+
+  async fetchHistory(commodity, market = "APMC Nasik ") {
+    const params = new URLSearchParams({
+      state: "Maharashtra",
+      commodity,
+      market
+    });
+
+    const response = await fetch(
+      `${this.apiUrl}?${params.toString()}`,
+      {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(45000)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Mandi API error: ${response.status}`);
+    }
+
+    const result = await response.json();
+
+    if (!result.success || !Array.isArray(result.data)) {
+      throw new Error("Invalid mandi API response");
+    }
+
+    return result.data
+      .sort((a, b) =>
+        new Date(b.arrival_date) - new Date(a.arrival_date)
+      );
+  }
+
+  async getPrice(cropId, district = "Nashik") {
+    if (district.toLowerCase() !== "nashik") return null;
+
+    const crop = this.db.prepare(
+      "SELECT * FROM crops WHERE id = ?"
+    ).get(cropId);
+
+    if (!crop) return null;
+
+    const records = await this.fetchHistory(crop.name_en);
+
+    if (!records.length) return null;
+
+    const latest = records[0];
+
+    return {
+      crop_id: cropId,
+      commodity: latest.commodity,
+      min_price: latest.min_price,
+      modal_price: latest.modal_price,
+      max_price: latest.max_price,
+      unit: "INR/quintal",
+      price_date: latest.arrival_date,
+      market_name: latest.market,
+      variety: latest.variety,
+      source: "Nashik Mandi API"
+    };
+  }
+
+  async getAllPrices(district = "Nashik") {
+    if (district.toLowerCase() !== "nashik") return [];
+
+    const crops = this.db.prepare(
+      "SELECT * FROM crops ORDER BY name_en ASC"
+    ).all();
+
+    const prices = [];
+
+    for (const crop of crops) {
+      try {
+        const price = await this.getPrice(crop.id, district);
+        if (price) {
+          prices.push({
+            ...price,
+            name_en: crop.name_en,
+            name_mr: crop.name_mr,
+            name_hi: crop.name_hi
+          });
+        }
+      } catch (error) {
+        console.error(
+          `Price unavailable for ${crop.name_en}:`,
+          error.message
+        );
+      }
+    }
+
+    return prices;
+  }
+}
+
+
+/**
  * Helper to compute price comparison badge and difference percentage
  * @param {number} askingPrice 
  * @param {number} modalPrice 
